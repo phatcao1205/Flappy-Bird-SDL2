@@ -10,5 +10,5 @@ const int JUMP_STRENGTH = -15;  // Lực nhảy của chim
 const int PIPE_WIDTH = 80;      // Chiều rộng của ống
 const int PIPE_GAP = 200;       // Khoảng cách giữa hai ống (trên và dưới)
 const int PIPE_SPEED = 5;       // Tốc độ di chuyển của ống
-
+const int MIN_BOTTOM_PIPE_HEIGHT = 50; // Chiều cao tối thiểu của ống dưới
 #endif

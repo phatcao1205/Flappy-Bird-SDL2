@@ -30,6 +30,8 @@ private:
     std::vector<bool> pipePassed;  // Theo dõi xem chim đã vượt qua ống nào chưa
     SDL_Texture* digitTextures[10];  // Mảng lưu texture của các chữ số 0-9
     Background* background;          // Đối tượng quản lý nền và mặt đất
+    PipeManager* pipeManager;        // Đối tượng quản lý ống
+    BirdManager* birdManager;        // Đối tượng quản lý chim
 
     void handleEvents();  // Xử lý các sự kiện (nhấn phím, thoát game, v.v.)
     void update();        // Cập nhật trạng thái trò chơi
@@ -37,6 +39,7 @@ private:
     void initPipes();     // Khởi tạo các ống ban đầu
     void loadDigitTextures();  // Tải các hình ảnh chữ số
     void renderScore();        // Vẽ điểm số lên màn hình
+    void restart();            // Khởi động lại trò chơi
 };
 
 #endif

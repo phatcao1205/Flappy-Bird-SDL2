@@ -15,21 +15,26 @@ Game::Game() {
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
     // Khởi tạo vị trí ban đầu của chim
-    bird.rect = {100, SCREEN_HEIGHT / 2, 40, 40};
+    bird.rect = {100, SCREEN_HEIGHT / 2, 34, 24};  // Kích thước chim (dựa trên Flappy Bird gốc: 34x24)
     bird.velocity = 0;
     running = true;
     gameOver = false;  // Khởi tạo trạng thái game over
     score = 0;  // Khởi tạo điểm số
 
     srand(time(0));  // Khởi tạo seed cho số ngẫu nhiên
-    initPipes();     // Khởi tạo các ống
-    pipePassed.resize(pipes.size(), false);  // Khởi tạo mảng theo dõi trạng thái vượt qua ống
 
     // Tải các hình ảnh chữ số
     loadDigitTextures();
 
-    // Khởi tạo background
+    // Khởi tạo background trước khi gọi initPipes()
     background = new Background(renderer);
+
+    // Khởi tạo các ống
+    initPipes();  // Gọi initPipes() sau khi background đã được khởi tạo
+
+    // Khởi tạo pipe manager và bird manager
+    pipeManager = new PipeManager(renderer);
+    birdManager = new BirdManager(renderer);
 }
 
 // Hàm hủy, dọn dẹp tài nguyên
@@ -41,6 +46,8 @@ Game::~Game() {
         }
     }
     delete background;  // Giải phóng background
+    delete pipeManager; // Giải phóng pipe manager
+    delete birdManager; // Giải phóng bird manager
     SDL_DestroyRenderer(renderer);  // Hủy renderer
     SDL_DestroyWindow(window);      // Hủy cửa sổ
     SDL_Quit();                     // Thoát SDL
@@ -66,22 +73,48 @@ void Game::loadDigitTextures() {
 
 // Khởi tạo các ống ban đầu
 void Game::initPipes() {
+    pipes.clear();
+    pipePassed.clear();
+    int baseHeight = background->getBaseHeight();
+    int maxPipeHeight = SCREEN_HEIGHT - baseHeight - PIPE_GAP - MIN_BOTTOM_PIPE_HEIGHT - 50;  // Đảm bảo ống dưới có chiều cao tối thiểu
     for (int i = 0; i < 3; i++) {
-        // Tạo chiều cao ngẫu nhiên cho ống
-        int height = rand() % (SCREEN_HEIGHT - PIPE_GAP - 100) + 50;
+        // Tạo chiều cao ngẫu nhiên cho ống, đảm bảo ống dưới có chiều cao tối thiểu
+        int height = rand() % (maxPipeHeight - 50 + 1) + 50;
         // Thêm ống vào danh sách, cách nhau 300 pixel
         pipes.push_back({SCREEN_WIDTH + i * 300, height});
+        pipePassed.push_back(false);  // Khởi tạo trạng thái vượt qua
     }
+}
+
+// Khởi động lại trò chơi
+void Game::restart() {
+    // Đặt lại vị trí và vận tốc của chim
+    bird.rect = {100, SCREEN_HEIGHT / 2, 34, 24};
+    bird.velocity = 0;
+
+    // Đặt lại trạng thái game
+    gameOver = false;
+    score = 0;
+
+    // Khởi tạo lại các ống
+    initPipes();
 }
 
 // Xử lý các sự kiện như nhấn phím hoặc thoát game
 void Game::handleEvents() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) running = false;  // Thoát game nếu nhấn nút thoát
-        if (!gameOver && event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_SPACE) {
-            bird.velocity = JUMP_STRENGTH;  // Nhảy khi nhấn phím Space
-            sound.playWingSound();          // Phát âm thanh khi nhảy
+        if (event.type == SDL_QUIT) {
+            running = false;  // Thoát game nếu nhấn nút thoát
+        }
+        if (event.type == SDL_KEYDOWN) {
+            if (event.key.keysym.sym == SDLK_SPACE && !gameOver) {
+                bird.velocity = JUMP_STRENGTH;  // Nhảy khi nhấn phím Space
+                sound.playWingSound();          // Phát âm thanh khi nhảy
+            }
+            if (event.key.keysym.sym == SDLK_r) {
+                restart();  // Khởi động lại game khi nhấn phím R
+            }
         }
     }
 }
@@ -90,7 +123,7 @@ void Game::handleEvents() {
 void Game::update() {
     if (gameOver) return;  // Không cập nhật nếu trò chơi đã kết thúc
 
-    updateBird(bird);  // Cập nhật vị trí chim
+    birdManager->updateBird(bird);  // Cập nhật vị trí và animation của chim
 
     // Cập nhật vị trí các ống
     for (size_t i = 0; i < pipes.size(); i++) {
@@ -98,7 +131,9 @@ void Game::update() {
         pipe.x -= PIPE_SPEED;  // Di chuyển ống sang trái
         if (pipe.x + PIPE_WIDTH < 0) {  // Nếu ống ra khỏi màn hình
             pipe.x = SCREEN_WIDTH;  // Đặt lại vị trí ở bên phải
-            pipe.height = rand() % (SCREEN_HEIGHT - PIPE_GAP - 100) + 50;  // Tạo chiều cao ngẫu nhiên
+            int baseHeight = background->getBaseHeight();
+            int maxPipeHeight = SCREEN_HEIGHT - baseHeight - PIPE_GAP - MIN_BOTTOM_PIPE_HEIGHT - 50;
+            pipe.height = rand() % (maxPipeHeight - 50 + 1) + 50;  // Tạo chiều cao ngẫu nhiên
             pipePassed[i] = false;  // Đặt lại trạng thái vượt qua
         }
 
@@ -110,7 +145,7 @@ void Game::update() {
         }
 
         // Kiểm tra va chạm giữa chim và ống
-        if (checkCollision(bird.rect.x, bird.rect.y, bird.rect.w, bird.rect.h, pipe.x, pipe.height)) {
+        if (pipeManager->checkCollision(bird.rect.x, bird.rect.y, bird.rect.w, bird.rect.h, pipe.x, pipe.height)) {
             sound.playHitSound();  // Phát âm thanh va chạm
             sound.playDieSound();  // Phát âm thanh thua
             gameOver = true;       // Đặt trạng thái game over
@@ -147,7 +182,7 @@ void Game::renderScore() {
     for (size_t i = 0; i < scoreStr.length(); i++) {
         int digit = scoreStr[i] - '0';  // Chuyển ký tự thành số (0-9)
         if (digitTextures[digit]) {
-            SDL_Rect digitRect = {static_cast<int>(startX + i * digitWidth), startY, digitWidth, digitHeight}; // Ép kiểu để tránh cảnh báo
+            SDL_Rect digitRect = {static_cast<int>(startX + i * digitWidth), startY, digitWidth, digitHeight};
             SDL_RenderCopy(renderer, digitTextures[digit], nullptr, &digitRect);
         }
     }
@@ -158,19 +193,13 @@ void Game::render() {
     // Vẽ nền và mặt đất
     background->render();
 
-    // Vẽ chim
-    SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);  // Đặt màu cho chim (vàng)
-    SDL_RenderFillRect(renderer, &bird.rect);  // Vẽ chim
+    // Vẽ chim bằng birdManager
+    birdManager->render(renderer, bird);
 
-    // Vẽ các ống
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);  // Đặt màu cho ống (xanh lá)
+    // Vẽ các ống bằng pipeManager
+    int baseHeight = background->getBaseHeight();
     for (const auto& pipe : pipes) {
-        // Vẽ ống trên
-        SDL_Rect topPipe = {pipe.x, 0, PIPE_WIDTH, pipe.height};
-        // Vẽ ống dưới
-        SDL_Rect bottomPipe = {pipe.x, pipe.height + PIPE_GAP, PIPE_WIDTH, SCREEN_HEIGHT - pipe.height - PIPE_GAP};
-        SDL_RenderFillRect(renderer, &topPipe);  // Vẽ ống trên
-        SDL_RenderFillRect(renderer, &bottomPipe);  // Vẽ ống dưới
+        pipeManager->render(renderer, pipe, baseHeight);
     }
 
     // Vẽ điểm số
